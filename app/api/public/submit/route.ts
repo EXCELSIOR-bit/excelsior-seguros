@@ -58,14 +58,55 @@ function flattenPreguntas(form: FormularioDB): { preguntas: PreguntaDB[]; pregun
 
 function extractBasics(preguntas: PreguntaDB[], respuestas: Record<string, unknown>) {
   const basics = { cedula: "", nombre: "", telefono: "", correo: "" };
+  // Construir lista de candidatos para cada campo, con un "score" de qué tan bien matchea
+  const candidatos = {
+    cedula: [] as { score: number; valor: string }[],
+    nombre: [] as { score: number; valor: string }[],
+    telefono: [] as { score: number; valor: string }[],
+    correo: [] as { score: number; valor: string }[],
+  };
+
   for (const p of preguntas) {
     const t = p.texto.toLowerCase();
     const v = respuestas[p.id];
-    if (typeof v !== "string") continue;
-    if (!basics.cedula && (t.includes("cédula") || t.includes("cedula") || t.includes("nit") || t.includes("documento"))) basics.cedula = v.trim();
-    else if (!basics.nombre && (t.includes("nombre") || t.includes("razón social") || t.includes("razon social"))) basics.nombre = v.trim();
-    else if (!basics.telefono && (t.includes("teléfono") || t.includes("telefono") || t.includes("celular") || t.includes("móvil") || t.includes("movil") || t.includes("whatsapp"))) basics.telefono = v.trim();
-    else if (!basics.correo && (t.includes("correo") || t.includes("email") || t.includes("e-mail"))) basics.correo = v.trim();
+    if (typeof v !== "string" || !v.trim()) continue;
+    const valor = v.trim();
+
+    // Para cédula: excluir preguntas tipo select/radio (esos suelen ser "tipo de documento")
+    // y excluir preguntas que contengan la palabra "tipo"
+    if (p.tipo !== "select" && p.tipo !== "radio" && !t.includes("tipo")) {
+      // Score más alto para "número de cédula", "número de documento", "nit", "cc"
+      if (t.includes("número de cédula") || t.includes("numero de cedula")) candidatos.cedula.push({ score: 100, valor });
+      else if (t.includes("número de documento") || t.includes("numero de documento") || t.includes("número de identificación") || t.includes("numero de identificacion")) candidatos.cedula.push({ score: 90, valor });
+      else if (t.includes("nit")) candidatos.cedula.push({ score: 85, valor });
+      else if (t === "cédula" || t === "cedula") candidatos.cedula.push({ score: 80, valor });
+      else if (t.includes("cédula") || t.includes("cedula")) candidatos.cedula.push({ score: 70, valor });
+      else if (t.includes("documento")) candidatos.cedula.push({ score: 60, valor });
+    }
+
+    // Nombre — excluir "nombre de la empresa", a menos que sea para empresas (NIT)
+    // Por ahora aceptamos cualquier "nombre"
+    if (t.includes("nombre completo")) candidatos.nombre.push({ score: 100, valor });
+    else if (t.includes("razón social") || t.includes("razon social")) candidatos.nombre.push({ score: 90, valor });
+    else if (t.includes("nombre de la empresa")) candidatos.nombre.push({ score: 85, valor });
+    else if (t.includes("nombre")) candidatos.nombre.push({ score: 70, valor });
+
+    // Teléfono
+    if (t.includes("whatsapp")) candidatos.telefono.push({ score: 100, valor });
+    else if (t.includes("celular") || t.includes("móvil") || t.includes("movil")) candidatos.telefono.push({ score: 90, valor });
+    else if (t.includes("teléfono") || t.includes("telefono")) candidatos.telefono.push({ score: 80, valor });
+
+    // Correo
+    if (t.includes("correo") || t.includes("email") || t.includes("e-mail")) candidatos.correo.push({ score: 100, valor });
+  }
+
+  // Tomar el de mayor score para cada campo
+  for (const k of ["cedula", "nombre", "telefono", "correo"] as const) {
+    const arr = candidatos[k];
+    if (arr.length > 0) {
+      arr.sort((a, b) => b.score - a.score);
+      basics[k] = arr[0].valor;
+    }
   }
   return basics;
 }

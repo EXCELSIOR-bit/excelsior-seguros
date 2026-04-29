@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Search, RefreshCw, ArrowLeft } from "lucide-react";
 import Sidebar from "./components/Sidebar";
 import FormulariosAdmin from "./components/FormulariosAdmin";
-import Dashboard from "./components/Dashboard";
+import FileExplorer from "./components/FileExplorer";
 import ClientsTable from "./components/ClientsTable";
 import ClientDetail from "./components/ClientDetail";
 import PipelineBoard from "./components/PipelineBoard";
@@ -45,7 +45,7 @@ const ROLE_TABS: Record<string, string[]> = {
 };
 
 const TAB_INFO: Record<string, { title: string; subtitle: string }> = {
-  dashboard: { title: "Dashboard", subtitle: "Resumen general del sistema" },
+  dashboard: { title: "Archivos", subtitle: "Explorador de carpetas y documentos en Drive" },
   clients: { title: "Prospectos & Clientes", subtitle: "Gestiona tu cartera de seguros" },
   pipeline: { title: "Pipeline", subtitle: "Estado de negocios por etapa" },
   negocios: { title: "Negocios", subtitle: "Registro de documentos cargados" },
@@ -154,7 +154,7 @@ export default function Home() {
         </div>
         <div className="flex-1 overflow-auto p-8">
           {error && <div className="mb-4 px-4 py-3 rounded-xl bg-[var(--red-glow)] border border-red-500/30 text-[var(--red)] text-sm">⚠️ {error}</div>}
-          {activeTab === "dashboard" && <Dashboard clients={clients} loading={loading} />}
+          {activeTab === "dashboard" && <FileExplorer />}
           {activeTab === "clients" && !selectedClient && <ClientsTable clients={clients} searchQuery={searchQuery} loading={loading} onSelectClient={setSelectedClient} />}
           {activeTab === "clients" && selectedClient && <ClientDetail client={selectedClient} onBack={() => { setSelectedClient(null); setExpandedNegocioId(undefined); }} expandedNegocioId={expandedNegocioId} onNegocioExpanded={() => setExpandedNegocioId(undefined)} />}
           {activeTab === "pipeline" && <PipelineBoard clients={clients} onSelectClient={(c) => { setSelectedClient(c); setActiveTab("clients"); }} />}

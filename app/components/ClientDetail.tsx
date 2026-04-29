@@ -7,8 +7,7 @@ import {
   Calendar, FileText, ChevronRight, Edit2, Phone, Search as SearchIcon,
   CheckCircle2, TrendingUp, ChevronDown, Briefcase, Upload,
   CreditCard, Banknote, AlertTriangle, Loader2, RefreshCw, Clock,
-  UserPlus, BarChart3, FileSpreadsheet, Send, DollarSign, Plus, Trash2, Download
-} from "lucide-react";
+  UserPlus, BarChart3, FileSpreadsheet, Send, DollarSign, Plus, Trash2, Download, X} from "lucide-react";
 import type { Client, Poliza } from "../page";
 
 const WF20 = "https://n8n.grupoexcelsior.co/webhook/guardar-negocio";
@@ -163,6 +162,8 @@ function DealCard({ deal, onSave, client, onLocalUpdate }: { deal: Deal; onSave:
   const [negAlertHist, setNegAlertHist] = useState<any[]>([]);
   const [negAlertsLoaded, setNegAlertsLoaded] = useState(false);
   const [expandedAlertIds, setExpandedAlertIds] = useState<Set<string>>(new Set());
+  const [crearAlertaVenc, setCrearAlertaVenc] = useState(true);
+  const [msgAlerta, setMsgAlerta] = useState("");
   const caRef = useRef<HTMLInputElement>(null);
   const endosoRef = useRef<HTMLInputElement>(null);
   const evRef = useRef<HTMLInputElement>(null);
@@ -327,6 +328,20 @@ function DealCard({ deal, onSave, client, onLocalUpdate }: { deal: Deal; onSave:
   // Auto-load alerts when card is expanded
   useEffect(() => { if (exp && !negAlertsLoaded) loadNegocioAlerts(); }, [exp]);
 
+  const delSeg = async (s: { fecha: string; nota: string }) => {
+    const restantes = deal.seguimientos.filter(x => !(x.fecha === s.fecha && x.nota === s.nota));
+    onLocalUpdate?.({ id: deal.id, seguimientos: restantes });
+    try {
+      await fetch("/api/seguimiento/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ negocio_id: deal.id, fecha: s.fecha, nota: s.nota }),
+      });
+    } catch {}
+    // Completar alertas pendientes de "Gestionar" para este cliente
+    completeAlertAfterChange(client.cedula).catch(() => {});
+  };
+
   const addSeg = async () => {
     if (segSaving) return; // Prevent double click
     if (!newSegFecha) { setSegError("La fecha es obligatoria"); return; }
@@ -350,6 +365,8 @@ function DealCard({ deal, onSave, client, onLocalUpdate }: { deal: Deal; onSave:
     setTimeout(() => setSegSuccess(""), 4000);
     setNewSegNota(""); setNewSegFecha(new Date().toISOString().split("T")[0]);
     setSegSaving(false);
+    // Completar alertas pendientes de "Gestionar" para este cliente
+    completeAlertAfterChange(client.cedula).catch(() => {});
   };
 
   const addCotizacion = () => {
@@ -539,7 +556,7 @@ function DealCard({ deal, onSave, client, onLocalUpdate }: { deal: Deal; onSave:
           {(mappedEtapa === "seguimiento" || idx > 1 || mappedEtapa === "perdido") && (
             <StageSection title="Seguimiento" icon={<EyeIcon size={16} />} color="var(--stage-follow)" glow="var(--stage-follow-glow)">
               <div className="space-y-2 mb-3 max-h-[300px] overflow-y-auto">{deal.seguimientos.length === 0 ? <p className="text-[14px] text-[var(--text-muted)] italic py-2">Sin seguimientos — debes agregar al menos uno para avanzar</p> : [...deal.seguimientos].reverse().map((s, i) => (
-                <div key={i} className="flex items-start gap-3 bg-[var(--surface)] rounded-xl px-4 py-3 border border-[var(--border)]"><Calendar size={14} className="text-[var(--stage-follow)] mt-0.5 shrink-0" /><div><span className="text-[12px] font-semibold text-[var(--stage-follow)]">{s.fecha}</span><p className="text-[14px] text-[var(--text-secondary)] mt-0.5">{s.nota}</p></div></div>
+                <div key={i} className="group flex items-start gap-3 bg-[var(--surface)] rounded-xl px-4 py-3 border border-[var(--border)]"><Calendar size={14} className="text-[var(--stage-follow)] mt-0.5 shrink-0" /><div className="flex-1 min-w-0"><span className="text-[12px] font-semibold text-[var(--stage-follow)]">{s.fecha}</span><p className="text-[14px] text-[var(--text-secondary)] mt-0.5 break-words">{s.nota}</p></div>{mappedEtapa !== "perdido" && <button onClick={() => delSeg(s)} className="shrink-0 p-1.5 rounded-lg text-[var(--text-muted)] hover:text-[var(--red)] hover:bg-[var(--red-glow)] opacity-60 hover:opacity-100 transition-all" title="Eliminar seguimiento"><X size={14} /></button>}</div>
               ))}</div>
               {mappedEtapa !== "perdido" && (<div className="space-y-2"><div className="grid grid-cols-[1fr_140px_auto] gap-3"><div><label className="text-[12px] text-[var(--text-muted)] uppercase font-medium">Observación *</label><input className="w-full bg-[var(--surface)] border border-[var(--border)] rounded-xl px-4 py-3 text-[14px] outline-none mt-1" value={newSegNota} onChange={e => { setNewSegNota(e.target.value); setSegError(""); setSegSuccess(""); }} placeholder="Ej: Se contactó al cliente..." onKeyDown={e => e.key === "Enter" && addSeg()} /></div><div><label className="text-[12px] text-[var(--text-muted)] uppercase font-medium">Fecha *</label><input type="date" className="w-full bg-[var(--surface)] border border-[var(--border)] rounded-xl px-3 py-3 text-[14px] outline-none mt-1" value={newSegFecha} onChange={e => { setNewSegFecha(e.target.value); setSegError(""); }} /></div><button onClick={addSeg} disabled={segSaving} className="self-end px-5 py-3 bg-[var(--stage-follow)] text-[var(--bg)] text-[14px] font-semibold rounded-xl disabled:opacity-50 disabled:cursor-not-allowed">{segSaving ? "Guardando..." : "Agregar"}</button></div>{segError && <div className="flex items-center gap-2 text-[var(--red)] text-[13px] font-medium"><AlertTriangle size={14} />{segError}</div>}{segSuccess && <div className="flex items-center gap-2 text-[var(--green)] text-[13px] font-medium bg-[var(--green-glow)] px-3 py-2 rounded-lg border border-green-500/20 animate-scale-in"><CheckCircle2 size={14} />{segSuccess}</div>}</div>)}
             </StageSection>
@@ -889,8 +906,28 @@ function DealCard({ deal, onSave, client, onLocalUpdate }: { deal: Deal; onSave:
           {(mappedEtapa === "emitido" || idx >= 4 || mappedEtapa === "perdido") && (
             <StageSection title="Emitido / Cerrado" icon={<ClipboardCheck size={18} />} color="var(--stage-emitted)" glow="var(--stage-emitted-glow)">
               {saving && <div className="flex items-center gap-2 mb-3 text-[14px] text-[var(--accent)]"><Loader2 size={16} className="animate-spin" />Subiendo archivo...</div>}
+              {msgAlerta && <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-lg bg-[var(--green-glow)] border border-green-500/20 text-[13px] text-[var(--green)]"><AlertTriangle size={14} />{msgAlerta}</div>}
               {(deal.caratula || deal.archivo) && <div className="flex items-center gap-3 p-3 bg-[var(--green-glow)] rounded-lg border border-green-500/20 mb-3"><FileText size={18} className="text-[var(--green)]" /><span className="text-[15px] text-[var(--green)] flex-1">{deal.caratula || deal.archivo}</span><CheckCircle2 size={18} className="text-[var(--green)]" /></div>}
-              <div className="bg-[var(--surface)] rounded-xl p-4 border border-[var(--border)] mb-3"><label className="text-[14px] text-[var(--text-muted)] uppercase font-medium mb-2 block">Carátula</label>{(deal.caratula || deal.archivo) ? (<div className="space-y-2">{mappedEtapa !== "perdido" && <button onClick={() => caRef.current?.click()} className="text-[13px] text-[var(--accent)] hover:underline flex items-center gap-1"><Upload size={14} />Reemplazar carátula</button>}</div>) : (<button onClick={() => caRef.current?.click()} className="w-full flex items-center justify-center gap-3 px-4 py-5 rounded-xl border-2 border-dashed border-[var(--border)] text-[var(--text-muted)] hover:border-[var(--stage-emitted)] text-[16px]"><Upload size={20} /> Subir carátula</button>)}<input ref={caRef} type="file" className="hidden" onChange={async e => { const f = e.target.files?.[0]; if (!f) return; setSaving(true); const base64 = await new Promise<string>((res) => { const reader = new FileReader(); reader.onload = () => res((reader.result as string).split(",")[1]); reader.readAsDataURL(f); }); try { await uploadToNeg("Polizas", [{ name: f.name, mimeType: f.type || "application/pdf", base64 }]); } catch {} await sv({ caratula: f.name }); setSaving(false); }} /></div>
+              <div className="bg-[var(--surface)] rounded-xl p-4 border border-[var(--border)] mb-3">
+                <label className="text-[14px] text-[var(--text-muted)] uppercase font-medium mb-2 block">Carátula</label>
+                {/* Campo: Vencimiento de la póliza + checkbox de alerta automática */}
+                {mappedEtapa !== "perdido" && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4 p-3 rounded-lg bg-[var(--surface-light)] border border-[var(--border)]">
+                    <div>
+                      <label className="text-[12px] text-[var(--text-muted)] uppercase font-medium block mb-1">Vencimiento póliza</label>
+                      <input type="date" value={deal.vigencia_hasta || ""} onChange={e => sv({ vigencia_hasta: e.target.value })} className="w-full bg-[var(--surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-[13px] outline-none" />
+                    </div>
+                    <div className="flex items-end">
+                      <label className="flex items-center gap-2 text-[12px] text-[var(--text-muted)] cursor-pointer select-none">
+                        <input type="checkbox" checked={crearAlertaVenc} onChange={e => setCrearAlertaVenc(e.target.checked)} className="w-4 h-4 accent-[var(--accent)]" />
+                        Crear alertas automáticas (60d, 30d, 15d antes)
+                      </label>
+                    </div>
+                  </div>
+                )}
+                {(deal.caratula || deal.archivo) ? (<div className="space-y-2">{mappedEtapa !== "perdido" && <button onClick={() => caRef.current?.click()} className="text-[13px] text-[var(--accent)] hover:underline flex items-center gap-1"><Upload size={14} />Reemplazar carátula</button>}</div>) : (<button onClick={() => caRef.current?.click()} className="w-full flex items-center justify-center gap-3 px-4 py-5 rounded-xl border-2 border-dashed border-[var(--border)] text-[var(--text-muted)] hover:border-[var(--stage-emitted)] text-[16px]"><Upload size={20} /> Subir carátula</button>)}
+                <input ref={caRef} type="file" className="hidden" onChange={async e => { const f = e.target.files?.[0]; if (!f) return; setSaving(true); const base64 = await new Promise<string>((res) => { const reader = new FileReader(); reader.onload = () => res((reader.result as string).split(",")[1]); reader.readAsDataURL(f); }); try { await uploadToNeg("Polizas", [{ name: f.name, mimeType: f.type || "application/pdf", base64 }]); } catch {} await sv({ caratula: f.name }); /* Crear alertas de vencimiento si checkbox activo y hay fecha */ if (crearAlertaVenc && deal.vigencia_hasta) { try { const r = await fetch("/api/alertas/poliza", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cedula: deal.cedula, negocio_id: deal.id, tipo_poliza: deal.tipo_poliza || "Póliza", aseguradora: deal.aseguradora || "", fecha_vencimiento: deal.vigencia_hasta }) }); const d = await r.json(); if (d.ok && d.creadas > 0) { setMsgAlerta(`✅ ${d.creadas} alerta(s) de vencimiento creada(s)`); setTimeout(() => setMsgAlerta(""), 4000); } } catch {} } setSaving(false); }} />
+              </div>
               {/* Endoso (opcional) */}
               <div className="bg-[var(--surface)] rounded-xl p-4 border border-[var(--border)]"><label className="text-[14px] text-[var(--text-muted)] uppercase font-medium mb-2 block">Endoso <span className="text-[12px] normal-case font-normal">(no obligatorio)</span></label>{deal.endoso ? (<div className="flex items-center gap-3 p-3 bg-[var(--green-glow)] rounded-lg border border-green-500/20"><FileText size={16} className="text-[var(--green)]" /><span className="text-[14px] text-[var(--green)] flex-1">{deal.endoso}</span>{mappedEtapa !== "perdido" && <button onClick={() => endosoRef.current?.click()} className="text-[12px] text-[var(--accent)] hover:underline flex items-center gap-1"><Upload size={12} />Reemplazar</button>}</div>) : mappedEtapa !== "perdido" ? (<button onClick={() => endosoRef.current?.click()} className="w-full flex items-center justify-center gap-3 px-4 py-4 rounded-xl border-2 border-dashed border-[var(--border)] text-[var(--text-muted)] hover:border-[var(--stage-emitted)] text-[15px]"><Upload size={18} /> Subir endoso</button>) : null}<input ref={endosoRef} type="file" className="hidden" onChange={async e => { const f = e.target.files?.[0]; if (!f) return; setSaving(true); const base64 = await new Promise<string>((res) => { const reader = new FileReader(); reader.onload = () => res((reader.result as string).split(",")[1]); reader.readAsDataURL(f); }); try { await uploadToNeg("Endosos", [{ name: f.name, mimeType: f.type || "application/pdf", base64 }]); } catch {} await sv({ endoso: f.name }); setSaving(false); }} /></div>
             </StageSection>
@@ -900,6 +937,7 @@ function DealCard({ deal, onSave, client, onLocalUpdate }: { deal: Deal; onSave:
           {mappedEtapa === "recaudo" && (
             <StageSection title="Recaudo" icon={<Receipt size={16} />} color="var(--stage-collected)" glow="var(--stage-collected-glow)">
               {saving && <div className="flex items-center gap-2 mb-3 text-[14px] text-[var(--accent)]"><Loader2 size={16} className="animate-spin" />Subiendo archivo...</div>}
+              {msgAlerta && <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-lg bg-[var(--green-glow)] border border-green-500/20 text-[13px] text-[var(--green)]"><AlertTriangle size={14} />{msgAlerta}</div>}
               {rok && <div className="flex items-center gap-1.5 text-[13px] text-[var(--green)] font-semibold bg-[var(--green-glow)] px-3 py-1.5 rounded-lg mb-3"><CheckCircle2 size={14} />Recaudo Completo</div>}
               {!deal.modalidad_pago && (<div className="mb-3"><label className="text-[13px] text-[var(--text-muted)] uppercase font-medium mb-3 block">Modalidad de Pago</label><div className="flex gap-4"><button onClick={() => sv({ modalidad_pago: "contado" })} className="flex-1 flex flex-col items-center gap-3 p-5 rounded-xl bg-[var(--surface)] border-2 border-[var(--border)] hover:border-[var(--green)]"><Banknote size={28} className="text-[var(--green)]" /><span className="text-[15px] font-semibold">Contado</span></button><button onClick={() => sv({ modalidad_pago: "financiado" })} className="flex-1 flex flex-col items-center gap-3 p-5 rounded-xl bg-[var(--surface)] border-2 border-[var(--border)] hover:border-[var(--purple)]"><CreditCard size={28} className="text-[var(--purple)]" /><span className="text-[15px] font-semibold">Financiado</span></button></div></div>)}
               {deal.modalidad_pago === "contado" && (<div className="bg-[var(--surface)] rounded-xl p-4 border border-[var(--border)] space-y-4"><div className="flex items-center gap-2"><Banknote size={18} className="text-[var(--green)]" /><span className="text-[15px] font-semibold">Contado</span></div><div><label className="text-[12px] text-[var(--text-muted)] uppercase font-medium">Fecha Límite</label><input type="date" className="w-full bg-[var(--surface-light)] border border-[var(--border)] rounded-xl px-4 py-3 text-[14px] outline-none mt-1" value={deal.fecha_limite_pago} onChange={async e => { const fecha = e.target.value; await sv({ fecha_limite_pago: fecha }); if (fecha) { try { await wf20({ action: "create_alert", cedula: deal.cedula, negocio_id: deal.id, descripcion: `Pago contado ${deal.tipo_poliza} - ${deal.aseguradora}`, fecha }); } catch {} } }} />{deal.fecha_limite_pago && !deal.pagado && <p className="text-[13px] text-[var(--secondary)] mt-2 flex items-center gap-1.5"><AlertTriangle size={13} />Alerta creada para {deal.fecha_limite_pago}</p>}</div><div className="flex items-center gap-4"><label className="text-[12px] text-[var(--text-muted)] uppercase font-medium">Pago</label><button onClick={() => sv({ pagado: !deal.pagado })} className={`px-6 py-2.5 rounded-xl text-[14px] font-semibold ${deal.pagado ? "bg-[var(--green)] text-white" : "bg-[var(--surface-light)] border border-[var(--border)] text-[var(--text-muted)]"}`}>{deal.pagado ? "✓ Pagado" : "Pendiente"}</button></div><div><label className="text-[12px] text-[var(--text-muted)] uppercase font-medium">Evidencia</label>{deal.evidencia_pago ? (<div className="flex items-center gap-3 mt-1 p-3 bg-[var(--green-glow)] rounded-lg"><FileText size={16} className="text-[var(--green)]" /><span className="text-[14px] text-[var(--green)] flex-1">{deal.evidencia_pago}</span></div>) : (<button onClick={() => evRef.current?.click()} className="mt-1 w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-dashed border-[var(--border)] text-[var(--text-muted)] hover:border-[var(--green)] text-[14px]"><Upload size={16} />Subir evidencia</button>)}<input ref={evRef} type="file" className="hidden" onChange={async e => { const f = e.target.files?.[0]; if (!f) return; setSaving(true); const base64 = await new Promise<string>((res) => { const reader = new FileReader(); reader.onload = () => res((reader.result as string).split(",")[1]); reader.readAsDataURL(f); }); try { await uploadToNeg("Evidencias", [{ name: f.name, mimeType: f.type || "application/pdf", base64 }]); } catch {} await sv({ evidencia_pago: f.name }); setSaving(false); }} /></div><div><label className="text-[13px] text-[var(--text-muted)] uppercase font-medium">Certificado de pago</label>{deal.cert_pago ? (<div className="flex items-center gap-3 mt-1 p-3 bg-[var(--green-glow)] rounded-lg"><FileText size={16} className="text-[var(--green)]" /><span className="text-[14px] text-[var(--green)] flex-1">{deal.cert_pago}</span></div>) : (<button onClick={() => certPagoRef.current?.click()} className="mt-1 w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-dashed border-[var(--border)] text-[var(--text-muted)] hover:border-[var(--green)] text-[14px]"><Upload size={16} />Subir certificado</button>)}<input ref={certPagoRef} type="file" className="hidden" onChange={async e => { const f = e.target.files?.[0]; if (!f) return; setSaving(true); const base64 = await new Promise<string>((res) => { const reader = new FileReader(); reader.onload = () => res((reader.result as string).split(",")[1]); reader.readAsDataURL(f); }); try { await uploadToNeg("Certificados", [{ name: f.name, mimeType: f.type || "application/pdf", base64 }]); } catch {} await sv({ cert_pago: f.name }); setSaving(false); }} /></div></div>)}

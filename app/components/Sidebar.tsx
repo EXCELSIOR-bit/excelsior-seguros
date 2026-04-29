@@ -1,10 +1,10 @@
 "use client";
 import { useState, useEffect } from "react";
-import { LayoutDashboard, Users, MessageSquare, Upload, Briefcase, GitBranch, Bell, Sun, Moon, BarChart3, LogOut, Settings, FileText } from "lucide-react";
+import { LayoutDashboard, Users, MessageSquare, Upload, Briefcase, GitBranch, Bell, Sun, Moon, BarChart3, LogOut, Settings, FileText, FolderOpen } from "lucide-react";
 import Image from "next/image";
 
 const ALL_SIDEBAR_ITEMS = [
-  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { id: "dashboard", label: "Archivos", icon: FolderOpen },
   { id: "clients", label: "Prospectos / Clientes", icon: Users },
   { id: "pipeline", label: "Pipeline", icon: GitBranch },
   { id: "negocios", label: "Negocios", icon: Briefcase },

@@ -26,10 +26,12 @@ export async function uploadToDrive(args: {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         cedula: args.cedula,
-        nombre_archivo: args.nombreArchivo,
-        mime_type: args.mimeType,
-        base64: args.base64,
         subfolder: args.subfolder || "Documentos",
+        files: [{
+          name: args.nombreArchivo,
+          mimeType: args.mimeType,
+          base64: args.base64,
+        }],
       }),
     });
     const text = await r.text();

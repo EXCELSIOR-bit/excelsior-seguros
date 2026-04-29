@@ -39,3 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Archivos de deploy (no van al repo)
+*.tar.gz
+excelsior-app.tar.gz

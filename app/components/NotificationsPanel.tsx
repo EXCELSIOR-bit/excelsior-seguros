@@ -73,7 +73,11 @@ export default function NotificationsPanel({ isOpen, onClose, onGestionar }: { i
   const [reprogFecha, setReprogFecha] = useState("");
   const [reprogNota, setReprogNota] = useState("");
   const [view, setView] = useState<"active" | "trash">("active");
-  const [filter, setFilter] = useState<"todas" | "vencida" | "hoy" | "manana">("todas");
+  const [filter, setFilter] = useState<"todas" | "vencida" | "hoy" | "semana" | "mes" | "manana">("todas");
+  const [mesFilter, setMesFilter] = useState<string>("");
+  const [rangoDesde, setRangoDesde] = useState<string>("");
+  const [rangoHasta, setRangoHasta] = useState<string>("");
+  const [showAdvFilters, setShowAdvFilters] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
   const fetchAlertas = useCallback(async () => {
@@ -164,18 +168,57 @@ export default function NotificationsPanel({ isOpen, onClose, onGestionar }: { i
   const vencidas = data?.alertas?.filter(a => a.urgencia === "vencida") || [];
   const activeAlertas = data?.alertas?.filter(a => a.urgencia !== "vencida") || [];
 
-  // Apply filter - "todas" shows everything EXCEPT vencidas
+  // Apply filter
   const allActive = [...vencidas, ...activeAlertas];
+  const todayStr = new Date().toISOString().split("T")[0];
+  const alertaEnFecha = (a: Alerta, desde: string, hasta: string) => {
+    if (!a.proximo_recordatorio) return false;
+    const f = a.proximo_recordatorio.split(" ")[0];
+    return (!desde || f >= desde) && (!hasta || f <= hasta);
+  };
   let filteredAlertas: Alerta[];
   if (filter === "todas") {
-    filteredAlertas = [...activeAlertas]; // Todas = solo activas (no vencidas)
+    filteredAlertas = [...activeAlertas];
   } else if (filter === "vencida") {
     filteredAlertas = [...vencidas];
+  } else if (filter === "semana") {
+    const fin = new Date(); fin.setDate(fin.getDate() + 7);
+    filteredAlertas = activeAlertas.filter(a => alertaEnFecha(a, todayStr, fin.toISOString().split("T")[0]));
+  } else if (filter === "mes") {
+    const fin = new Date(); fin.setDate(fin.getDate() + 30);
+    filteredAlertas = activeAlertas.filter(a => alertaEnFecha(a, todayStr, fin.toISOString().split("T")[0]));
   } else {
     filteredAlertas = allActive.filter(a => a.urgencia === filter);
   }
+  if (mesFilter) {
+    const [y, m] = mesFilter.split("-").map(Number);
+    const desde = `${mesFilter}-01`;
+    const ultimoDia = new Date(y, m, 0).getDate();
+    const hasta = `${mesFilter}-${String(ultimoDia).padStart(2, "0")}`;
+    filteredAlertas = filteredAlertas.filter(a => alertaEnFecha(a, desde, hasta));
+  }
+  if (rangoDesde || rangoHasta) {
+    filteredAlertas = filteredAlertas.filter(a => alertaEnFecha(a, rangoDesde, rangoHasta));
+  }
   // Sort: most urgent first
   filteredAlertas.sort((a, b) => (a.dias_restantes ?? 0) - (b.dias_restantes ?? 0));
+  // Meses únicos para el selector
+  const mesesDisponibles = (() => {
+    const set = new Set<string>();
+    [...vencidas, ...activeAlertas].forEach(a => {
+      if (a.proximo_recordatorio) {
+        const ym = a.proximo_recordatorio.substring(0, 7);
+        if (/^\d{4}-\d{2}$/.test(ym)) set.add(ym);
+      }
+    });
+    return Array.from(set).sort();
+  })();
+  const formatMesLabel = (ym: string) => {
+    try {
+      const [y, m] = ym.split("-").map(Number);
+      return new Date(y, m - 1, 1).toLocaleDateString("es-CO", { month: "long", year: "numeric" });
+    } catch { return ym; }
+  };
   const activeCount = activeAlertas.length;
   const vencidasCount = vencidas.length;
 
@@ -209,7 +252,7 @@ export default function NotificationsPanel({ isOpen, onClose, onGestionar }: { i
               {isGestionando&&<span className="text-[8px] px-1.5 py-0.5 rounded bg-[rgba(200,170,50,0.15)] text-[var(--accent)] font-bold">EN GESTIÓN</span>}
               {alerta.parent_id&&<span className="text-[8px] px-1.5 py-0.5 rounded bg-[rgba(59,130,246,0.1)] text-[var(--blue)] font-bold">REPROGRAMADA</span>}
             </div>
-            <p className="text-[12px] text-[var(--text-primary)] font-medium truncate">{alerta.descripcion}</p>
+            <p className="text-[12px] text-[var(--text-primary)] font-medium line-clamp-2 leading-snug" title={alerta.descripcion}>{alerta.descripcion}</p>
             <span className="text-[10px] text-[var(--text-muted)]">{alerta.nombre_cliente||`CC ${alerta.cedula}`} • {alerta.frecuencia}</span>
           </div>
           {filter === "vencida" && !isTrash && (<button onClick={e=>{e.stopPropagation();handleArchive(alerta);}} className="p-1.5 rounded-lg hover:bg-[rgba(239,68,68,0.1)] text-[var(--text-muted)] hover:text-[var(--red)] opacity-0 group-hover:opacity-100 shrink-0" title="Archivar"><Trash2 size={13}/></button>)}
@@ -218,6 +261,12 @@ export default function NotificationsPanel({ isOpen, onClose, onGestionar }: { i
 
         {isExp&&(<div className="px-3 pb-3 pt-0" style={{animation:"expandIn 0.2s ease"}}>
           <div className="rounded-lg p-2.5 mb-2.5" style={{background:`color-mix(in srgb, ${cfg.color} 8%, transparent)`,border:`1px solid color-mix(in srgb, ${cfg.color} 15%, transparent)`}}>
+            {alerta.descripcion && alerta.descripcion.length > 60 && (
+              <div className="mb-2 pb-2 border-b border-[var(--border)]">
+                <span className="text-[10px] text-[var(--text-muted)] uppercase font-semibold tracking-wider">Mensaje completo</span>
+                <p className="text-[11px] text-[var(--text-primary)] mt-1 leading-relaxed whitespace-pre-wrap break-words">{alerta.descripcion}</p>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-2 text-[10px]"><div><span className="text-[var(--text-muted)]">Cédula</span><p className="text-[var(--text-primary)] font-medium">{alerta.cedula}</p></div><div><span className="text-[var(--text-muted)]">Cliente</span><p className="text-[var(--text-primary)] font-medium">{alerta.nombre_cliente||"—"}</p></div><div><span className="text-[var(--text-muted)]">Frecuencia</span><p className="text-[var(--text-primary)] font-medium capitalize">{alerta.frecuencia}</p></div><div><span className="text-[var(--text-muted)]">Fecha</span><p className="text-[var(--text-primary)] font-medium">{alerta.proximo_recordatorio}</p></div></div>
           </div>
 
@@ -296,7 +345,20 @@ export default function NotificationsPanel({ isOpen, onClose, onGestionar }: { i
 
         {view === "active" && data && (filteredAlertas.length > 0 || vencidasCount > 0 || activeCount > 0) && (
           <div className="px-5 py-2.5 flex gap-1.5 border-b border-[var(--border)] shrink-0 overflow-x-auto">
-            {[{k:"todas" as const,l:"Todas",c:activeAlertas.length},{k:"vencida" as const,l:"Vencidas",c:vencidas.length},{k:"hoy" as const,l:"Hoy",c:(data?.alertas||[]).filter(a=>a.urgencia==="hoy").length},{k:"manana" as const,l:"Mañana",c:(data?.alertas||[]).filter(a=>a.urgencia==="manana").length}].filter(f=>f.c>0||f.k==="todas").map(f=>(
+            {(() => {
+              const fSem = new Date(); fSem.setDate(fSem.getDate()+7);
+              const fMes = new Date(); fMes.setDate(fMes.getDate()+30);
+              const cSem = activeAlertas.filter(a => alertaEnFecha(a, todayStr, fSem.toISOString().split("T")[0])).length;
+              const cMes = activeAlertas.filter(a => alertaEnFecha(a, todayStr, fMes.toISOString().split("T")[0])).length;
+              return [
+                {k:"todas" as const,l:"Todas",c:activeAlertas.length},
+                {k:"vencida" as const,l:"Vencidas",c:vencidas.length},
+                {k:"hoy" as const,l:"Hoy",c:(data?.alertas||[]).filter(a=>a.urgencia==="hoy").length},
+                {k:"manana" as const,l:"Mañana",c:(data?.alertas||[]).filter(a=>a.urgencia==="manana").length},
+                {k:"semana" as const,l:"Semana",c:cSem},
+                {k:"mes" as const,l:"30 días",c:cMes},
+              ];
+            })().filter(f=>f.c>0||f.k==="todas").map(f=>(
               <button key={f.k} onClick={()=>setFilter(f.k)} className={`px-3 py-1.5 rounded-lg text-[10px] font-semibold whitespace-nowrap transition-all ${filter===f.k?"bg-[var(--accent)] text-white":"bg-[var(--surface-light)] text-[var(--text-muted)] hover:bg-[var(--border)]"}`}>
                 {f.l}{f.c>0?` (${f.c})`:""}
               </button>
@@ -308,6 +370,38 @@ export default function NotificationsPanel({ isOpen, onClose, onGestionar }: { i
           {view === "active" && (<>
             {loading && !data && <div className="flex items-center justify-center py-16"><RefreshCw size={20} className="animate-spin text-[var(--text-muted)]"/></div>}
             {error && <div className="px-4 py-3 rounded-xl bg-[var(--red-glow)] border border-red-500/30 text-[var(--red)] text-sm">{error}</div>}
+
+            {/* Botón para mostrar/ocultar filtros avanzados */}
+            <div className="flex items-center justify-between mt-2 px-1">
+              <button onClick={() => setShowAdvFilters(s => !s)} className="text-[10px] font-semibold text-[var(--accent)] hover:underline flex items-center gap-1">
+                <Calendar size={11} /> {showAdvFilters ? "Ocultar filtros avanzados" : "Filtros avanzados"}
+                {(mesFilter || rangoDesde || rangoHasta) && <span className="ml-1 px-1.5 py-0.5 rounded bg-[var(--accent)] text-white text-[9px]">activo</span>}
+              </button>
+              {(mesFilter || rangoDesde || rangoHasta) && (
+                <button onClick={() => { setMesFilter(""); setRangoDesde(""); setRangoHasta(""); }} className="text-[10px] text-[var(--text-muted)] hover:text-[var(--red)]">Limpiar</button>
+              )}
+            </div>
+            {showAdvFilters && (
+              <div className="mt-2 mb-3 p-3 rounded-lg bg-[var(--surface-light)] border border-[var(--border)] space-y-2.5">
+                <div>
+                  <label className="text-[10px] font-semibold text-[var(--text-muted)] uppercase block mb-1">Mes específico</label>
+                  <select value={mesFilter} onChange={e => setMesFilter(e.target.value)} className="w-full bg-[var(--surface)] border border-[var(--border)] rounded-lg px-2 py-1.5 text-[12px] outline-none">
+                    <option value="">— Todos los meses —</option>
+                    {mesesDisponibles.map(ym => <option key={ym} value={ym}>{formatMesLabel(ym)}</option>)}
+                  </select>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] font-semibold text-[var(--text-muted)] uppercase block mb-1">Desde</label>
+                    <input type="date" value={rangoDesde} onChange={e => setRangoDesde(e.target.value)} className="w-full bg-[var(--surface)] border border-[var(--border)] rounded-lg px-2 py-1.5 text-[12px] outline-none" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-semibold text-[var(--text-muted)] uppercase block mb-1">Hasta</label>
+                    <input type="date" value={rangoHasta} onChange={e => setRangoHasta(e.target.value)} className="w-full bg-[var(--surface)] border border-[var(--border)] rounded-lg px-2 py-1.5 text-[12px] outline-none" />
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Vencidas banner when in "todas" view */}
             {filter === "todas" && vencidasCount > 0 && (
