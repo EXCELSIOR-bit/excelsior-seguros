@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { LayoutDashboard, Users, MessageSquare, Upload, Briefcase, GitBranch, Bell, Sun, Moon, BarChart3, LogOut, Settings, FileText, FolderOpen } from "lucide-react";
 import Image from "next/image";
+import { getUserAvatar } from "./ProfileSettings";
 
 const ALL_SIDEBAR_ITEMS = [
   { id: "dashboard", label: "Archivos", icon: FolderOpen },
@@ -29,6 +30,20 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ activeTab, onTabChange, alertCount = 0, onOpenAlerts, user, onLogout, allowedTabs, onOpenSettings }: SidebarProps) {
+  const [customAvatar, setCustomAvatar] = useState<string>("");
+  useEffect(() => {
+    const refresh = () => setCustomAvatar(getUserAvatar());
+    refresh();
+    const onStorage = (e: StorageEvent) => { if (e.key === "excelsior-prefs") refresh(); };
+    const onPrefsUpdate = () => refresh();
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("excelsior-prefs-updated", onPrefsUpdate);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("excelsior-prefs-updated", onPrefsUpdate);
+    };
+  }, []);
+
   const [theme, setTheme] = useState<"dark" | "light">("dark");
 
   useEffect(() => {
@@ -89,8 +104,8 @@ export default function Sidebar({ activeTab, onTabChange, alertCount = 0, onOpen
         </button>
 
         <div className="flex items-center gap-3 px-4 py-3 bg-[var(--surface-light)] rounded-xl">
-          <div className="w-9 h-9 rounded-[10px] bg-gradient-to-br from-[var(--accent)] to-[var(--accent-dark)] flex items-center justify-center text-sm font-bold text-white">
-            {user?.avatar || "N"}
+          <div className="w-9 h-9 rounded-[10px] bg-gradient-to-br from-[var(--accent)] to-[var(--accent-dark)] flex items-center justify-center text-sm font-bold text-white overflow-hidden">
+            {customAvatar ? <img src={customAvatar} alt="avatar" className="w-full h-full object-cover" /> : (user?.avatar || "N")}
           </div>
           <div className="flex-1 min-w-0">
             <div className="text-[13px] font-semibold truncate">{user?.nombre || "Excelsior"}</div>

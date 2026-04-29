@@ -14,7 +14,7 @@ import Analytics from "./components/Analytics";
 import AdminPanel from "./components/AdminPanel";
 import NotificationsPanel from "./components/NotificationsPanel";
 import LoginPage from "./components/LoginPage";
-import ProfileSettings, { initProfilePrefs } from "./components/ProfileSettings";
+import ProfileSettings, { initProfilePrefs , maybePlayAlertSoundOnce } from "./components/ProfileSettings";
 
 const N8N_API_CLIENTS = "https://n8n.grupoexcelsior.co/webhook/api-clients";
 const N8N_API_ALERTAS = "https://n8n.grupoexcelsior.co/webhook/api-alertas";
@@ -119,7 +119,15 @@ export default function Home() {
 
   const fetchAlertCount = useCallback(async () => {
     const token = localStorage.getItem("excelsior-token") || "";
-    try { const res = await fetch(N8N_API_ALERTAS); const data = await res.json(); const activeOnly = (data.alertas || []).filter((a: any) => a.urgencia !== "vencida").length; setAlertCount(activeOnly); } catch {}
+    try {
+      const res = await fetch(N8N_API_ALERTAS);
+      const data = await res.json();
+      const arr = (data.alertas || []) as Array<{ urgencia?: string }>;
+      const activeOnly = arr.filter((a) => a.urgencia !== "vencida").length;
+      setAlertCount(activeOnly);
+      // Si hay alertas pendientes (cualquier tipo), reproducir tono de aviso una sola vez por sesión
+      if (arr.length > 0) maybePlayAlertSoundOnce();
+    } catch {}
   }, []);
 
   useEffect(() => { if (user) { fetchClients(); fetchAlertCount(); const i = setInterval(fetchAlertCount, 15 * 60 * 1000); return () => clearInterval(i); } }, [user, fetchAlertCount]);
