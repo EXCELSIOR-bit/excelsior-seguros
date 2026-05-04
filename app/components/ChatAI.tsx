@@ -8,9 +8,25 @@ interface Message {
   files?: { name: string; size: number }[];
 }
 
+interface PendingCotizacionUpload {
+  endpoint: string;
+  data: {
+    tipo_registro: string;
+    cedula: string;
+    negocio_id: string;
+    aseguradora: string;
+    valor?: string;
+    coberturas?: string;
+    fecha?: string;
+    moneda?: string;
+    motivo?: string;
+  };
+}
+
 // ====== CONFIGURACIÓN - URLs de tu n8n ======
-const N8N_WEBHOOK_URL = "https://n8n.grupoexcelsior.co/webhook/chat-seguros";
-const N8N_UPLOAD_URL = "https://n8n.grupoexcelsior.co/webhook/upload-documento";
+const N8N_BASE = "https://n8n.grupoexcelsior.co/webhook";
+const N8N_WEBHOOK_URL = `${N8N_BASE}/chat-seguros`;
+const N8N_UPLOAD_URL = `${N8N_BASE}/upload-documento`;
 // ============================================
 
 function generateSessionId() {
@@ -30,9 +46,22 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
+/** Lee del localStorage el nombre del operador logueado (para autoría de seguimientos, etc). */
+function getOperatorName(): string {
+  if (typeof window === "undefined") return "Operador";
+  try {
+    const u = localStorage.getItem("excelsior-user");
+    if (!u) return "Operador";
+    const parsed = JSON.parse(u);
+    return parsed.nombre || parsed.name || parsed.email || "Operador";
+  } catch {
+    return "Operador";
+  }
+}
+
 const INITIAL_MESSAGE: Message = {
   role: "assistant",
-  text: "¡Hola! Soy el asistente de Excelsior Seguros. ¿En qué puedo ayudarte?\n\nPuedo:\n• Crear un nuevo prospecto (con correo)\n• Agregar documentos a un cliente o subcarpeta\n• Convertir un prospecto a cliente\n• Consultar información de una cédula\n• Revertir un cliente a prospecto\n• Listar clientes o prospectos\n• Crear subcarpetas (una o varias a la vez)\n• Mover documentos entre carpetas",
+  text: "¡Hola! Soy el asistente de Excelsior Seguros. ¿En qué puedo ayudarte?\n\nPuedo:\n• Crear un nuevo prospecto (con correo)\n• Agregar documentos a un cliente o subcarpeta\n• Convertir un prospecto a cliente\n• Consultar información de una cédula\n• Revertir un cliente a prospecto\n• Listar clientes o prospectos\n• Crear subcarpetas (una o varias a la vez)\n• Mover documentos entre carpetas\n• Crear/avanzar negocios y agregar seguimientos\n• Gestionar propuestas (subir cotizaciones, marcar no representa)",
 };
 
 export default function ChatAI() {
@@ -43,6 +72,7 @@ export default function ChatAI() {
   const [isUploading, setIsUploading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [pendingCotizacion, setPendingCotizacion] = useState<PendingCotizacionUpload | null>(null);
   const [sessionId] = useState(() => generateSessionId());
   const chatEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -56,6 +86,23 @@ export default function ChatAI() {
     chatInputRef.current?.focus();
   }, [messages]);
 
+  /** Sube archivo a WF-30 (subir-cotizacion-chat) usando datos preparados por la IA */
+  const uploadCotizacion = async (file: File, ctx: PendingCotizacionUpload): Promise<string> => {
+    const base64 = await fileToBase64(file);
+    const res = await fetch(`${N8N_BASE}/${ctx.endpoint}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...ctx.data,
+        archivo: { name: file.name, mimeType: file.type || "application/pdf", base64 },
+      }),
+    });
+    const data = await res.json();
+    return data.status === "success"
+      ? `✅ ${data.message || "Archivo subido"}\n\n¿Continuamos con la siguiente aseguradora? Dime "continuar propuesta del ${ctx.data.negocio_id}" para ver qué falta.`
+      : `⚠️ ${data.message || "Error subiendo el archivo"}`;
+  };
+
   const handleSend = async () => {
     if (!input.trim() && files.length === 0) return;
 
@@ -64,15 +111,38 @@ export default function ChatAI() {
       text: input,
       files: files.map((f) => ({ name: f.name, size: f.size })),
     };
-
     setMessages((prev) => [...prev, userMsg]);
+
     const currentInput = input;
     const currentFiles = [...files];
     setInput("");
     setFiles([]);
+
+    // CASO ESPECIAL: si hay una cotización pendiente y el usuario subió un archivo,
+    // NO mandamos al chat — vamos directo al endpoint de cotización.
+    if (pendingCotizacion && currentFiles.length > 0) {
+      const ctx = pendingCotizacion;
+      setPendingCotizacion(null);
+      setIsUploading(true);
+      setIsTyping(true);
+      try {
+        const botResponse = await uploadCotizacion(currentFiles[0], ctx);
+        setMessages((prev) => [...prev, { role: "assistant", text: botResponse }]);
+      } catch (err) {
+        console.error("Cotizacion upload error:", err);
+        setMessages((prev) => [...prev, {
+          role: "assistant",
+          text: "⚠️ Error subiendo la cotización al servidor.\n\nIntenta de nuevo o sube el archivo desde el frontend."
+        }]);
+      } finally {
+        setIsUploading(false);
+        setIsTyping(false);
+      }
+      return;
+    }
+
     setIsTyping(true);
 
-    // Save files for potential upload later
     if (currentFiles.length > 0) {
       setPendingFiles(currentFiles);
     }
@@ -89,23 +159,38 @@ export default function ChatAI() {
           file_names: currentFiles.map((f) => f.name),
           file_count: currentFiles.length,
           token,
+          usuario_nombre: getOperatorName(),
         }),
       });
 
       const data = await response.json();
       let botResponse = data.response || data.output || "No recibí respuesta del servidor.";
+      botResponse = typeof botResponse === "string" ? botResponse.replace(/^"|"$/g, "").replace(/\\n/g, "\n") : botResponse;
 
-      botResponse = typeof botResponse === "string"
-        ? botResponse.replace(/^"|"$/g, "").replace(/\\n/g, "\n")
-        : botResponse;
-
-      // If the action requires file upload
-      if (data.upload_cedula && (currentFiles.length > 0 || pendingFiles.length > 0)) {
+      // CASO 1: La IA pidió que el usuario suba un archivo (cotización o evidencia no representa)
+      if (data.type === "upload_required" && data.upload_endpoint && data.upload_data) {
+        // Si en este mismo mensaje ya hay archivos adjuntos, subirlos directamente
+        if (currentFiles.length > 0) {
+          const ctx: PendingCotizacionUpload = { endpoint: data.upload_endpoint, data: data.upload_data };
+          setIsUploading(true);
+          try {
+            botResponse = await uploadCotizacion(currentFiles[0], ctx);
+          } catch (err) {
+            console.error("Cotizacion upload error:", err);
+            botResponse = "⚠️ Error subiendo la cotización.\n\nIntenta de nuevo.";
+          } finally {
+            setIsUploading(false);
+          }
+        } else {
+          // Si NO hay archivo todavía, guardar el contexto y esperar a que el usuario lo adjunte
+          setPendingCotizacion({ endpoint: data.upload_endpoint, data: data.upload_data });
+        }
+      }
+      // CASO 2: Acción que requiere upload genérico (AGREGAR_DOCUMENTOS clásico)
+      else if (data.upload_cedula && (currentFiles.length > 0 || pendingFiles.length > 0)) {
         const filesToUpload = currentFiles.length > 0 ? currentFiles : pendingFiles;
-        
         setMessages((prev) => [...prev, { role: "assistant", text: "📤 Subiendo " + filesToUpload.length + " archivo(s) a la cédula " + data.upload_cedula + "..." }]);
         setIsUploading(true);
-
         try {
           const fileData = await Promise.all(
             filesToUpload.map(async (f) => ({
@@ -115,7 +200,6 @@ export default function ChatAI() {
               size: f.size,
             }))
           );
-
           const uploadRes = await fetch(N8N_UPLOAD_URL, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -126,7 +210,6 @@ export default function ChatAI() {
               files: fileData,
             }),
           });
-
           const uploadData = await uploadRes.json();
           botResponse = uploadData.status === "success"
             ? "✅ " + (uploadData.message || filesToUpload.length + " archivo(s) subido(s) exitosamente") + "\n\n¿Necesitas algo más?"
@@ -197,6 +280,11 @@ export default function ChatAI() {
             <Upload size={10} className="animate-bounce" /> Subiendo archivos...
           </span>
         )}
+        {pendingCotizacion && (
+          <span className="text-[11px] text-[var(--accent)]">
+            ⏳ Esperando archivo de {pendingCotizacion.data.aseguradora}
+          </span>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto flex flex-col gap-4 pb-4 relative">
@@ -212,8 +300,7 @@ export default function ChatAI() {
                 <div className="mt-2 pt-2 border-t border-black/10 flex flex-col gap-1">
                   {msg.files.map((f, j) => (
                     <div key={j} className="flex items-center gap-2 text-xs opacity-80">
-                      <FileText size={12} />
-                      {f.name}
+                      <FileText size={12} /> {f.name}
                     </div>
                   ))}
                 </div>
@@ -221,7 +308,6 @@ export default function ChatAI() {
             </div>
           </div>
         ))}
-
         {isTyping && (
           <div className="flex justify-start animate-slide-up">
             <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl rounded-bl-sm px-5 py-4 flex gap-1.5">
@@ -231,7 +317,6 @@ export default function ChatAI() {
             </div>
           </div>
         )}
-
         <div ref={chatEndRef} />
       </div>
 
@@ -263,7 +348,7 @@ export default function ChatAI() {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
-          placeholder="Escribe tu mensaje o arrastra archivos aquí..."
+          placeholder={pendingCotizacion ? `Adjunta el archivo de ${pendingCotizacion.data.aseguradora}...` : "Escribe tu mensaje o arrastra archivos aquí..."}
           disabled={isTyping || isUploading}
           autoFocus
           className="flex-1 px-5 py-3.5 rounded-xl bg-[var(--surface)] border border-[var(--border)] text-[var(--text-primary)] text-sm outline-none focus:border-[var(--accent)] transition-colors placeholder:text-[var(--text-muted)] disabled:opacity-50"
