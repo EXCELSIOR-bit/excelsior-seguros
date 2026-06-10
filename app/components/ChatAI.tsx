@@ -73,15 +73,71 @@ export default function ChatAI() {
   const [isDragging, setIsDragging] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [pendingCotizacion, setPendingCotizacion] = useState<PendingCotizacionUpload | null>(null);
-  const [sessionId] = useState(() => generateSessionId());
+  const [sessionId] = useState(() => {
+  const saved = localStorage.getItem("chat_session_id");
+
+  if (saved) return saved;
+
+  const newId = generateSessionId();
+  localStorage.setItem("chat_session_id", newId);
+
+  return newId;
+});
   const chatEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
   const chatInputRef = useRef<HTMLInputElement>(null);
+const saveChatMessage = async (
+  role: "user" | "assistant",
+  text: string
+) => {
 
+  console.log("GUARDANDO MENSAJE", role, text);
+ 
+
+
+  if (!sessionId || !text.trim()) return;
+
+  await fetch("/api/chat/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      session_id: sessionId,
+      usuario_nombre: getOperatorName(),
+      role,
+      content: text,
+    }),
+  });
+};
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isTyping]);
 
+  useEffect(() => {
+  const loadChatHistory = async () => {
+    if (!sessionId) return;
+
+    try {
+      const res = await fetch(`/api/chat/messages?session_id=${sessionId}`);
+      const data = await res.json();
+
+      if (data.ok && Array.isArray(data.messages) && data.messages.length > 0) {
+        setMessages(
+          data.messages.map((m: any) => ({
+            role: m.role,
+            text: m.content,
+          }))
+        );
+      }
+    } catch (err) {
+      console.error("Error cargando historial:", err);
+    }
+  };
+
+  loadChatHistory();
+
+}, [sessionId]);
+  
   useEffect(() => {
     chatInputRef.current?.focus();
   }, [messages]);
@@ -104,6 +160,7 @@ export default function ChatAI() {
   };
 
   const handleSend = async () => {
+    console.log("HANDLE SEND EJECUTADO");
     if (!input.trim() && files.length === 0) return;
 
     const userMsg: Message = {
@@ -111,10 +168,15 @@ export default function ChatAI() {
       text: input,
       files: files.map((f) => ({ name: f.name, size: f.size })),
     };
-    setMessages((prev) => [...prev, userMsg]);
+   
 
     const currentInput = input;
     const currentFiles = [...files];
+
+     setMessages((prev) => [...prev, userMsg]);
+    
+    await saveChatMessage("user", currentInput);
+
     setInput("");
     setFiles([]);
 
@@ -127,7 +189,8 @@ export default function ChatAI() {
       setIsTyping(true);
       try {
         const botResponse = await uploadCotizacion(currentFiles[0], ctx);
-        setMessages((prev) => [...prev, { role: "assistant", text: botResponse }]);
+       setMessages((prev) => [...prev, { role: "assistant", text: botResponse }]);
+       await saveChatMessage("assistant", botResponse);
       } catch (err) {
         console.error("Cotizacion upload error:", err);
         setMessages((prev) => [...prev, {
@@ -142,31 +205,53 @@ export default function ChatAI() {
     }
 
     setIsTyping(true);
+    try {
 
     if (currentFiles.length > 0) {
       setPendingFiles(currentFiles);
     }
 
-    try {
-      const token = typeof window !== "undefined" ? localStorage.getItem("excelsior-token") || "" : "";
-      const response = await fetch(N8N_WEBHOOK_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: currentInput,
-          session_id: sessionId,
-          has_files: currentFiles.length > 0,
-          file_names: currentFiles.map((f) => f.name),
-          file_count: currentFiles.length,
-          token,
-          usuario_nombre: getOperatorName(),
-        }),
-      });
+   const formData = new FormData();
 
-      const data = await response.json();
-      let botResponse = data.response || data.output || "No recibí respuesta del servidor.";
-      botResponse = typeof botResponse === "string" ? botResponse.replace(/^"|"$/g, "").replace(/\\n/g, "\n") : botResponse;
+formData.append("message", currentInput);
+formData.append("session_id", sessionId);
+formData.append("token", localStorage.getItem("excelsior-token") || "");
+formData.append("usuario_nombre", getOperatorName());
 
+currentFiles.forEach((file) => {
+  formData.append("file", file);
+});
+
+const response = await fetch(N8N_WEBHOOK_URL, {
+  method: "POST",
+  body: formData,
+});
+
+      
+const contentType = response.headers.get("content-type");
+
+let data: any = {};
+
+if (contentType && contentType.includes("application/json")) {
+  data = await response.json();
+} else {
+  const text = await response.text();
+  data = { response: text };
+}
+
+let botResponse =
+  data.response ||
+  data.output ||
+  data.message ||
+  data.text ||
+  data.result ||
+  data.data?.response ||
+  data.data?.message ||
+  data[0]?.response ||
+  data[0]?.output ||
+  data[0]?.message ||
+  "Proceso ejecutado, pero no recibí un mensaje claro del servidor.";
+  
       // CASO 1: La IA pidió que el usuario suba un archivo (cotización o evidencia no representa)
       if (data.type === "upload_required" && data.upload_endpoint && data.upload_data) {
         // Si en este mismo mensaje ya hay archivos adjuntos, subirlos directamente
@@ -224,10 +309,14 @@ export default function ChatAI() {
       }
 
       setMessages((prev) => {
-        const filtered = prev.filter((m) => !m.text.startsWith("📤 Subiendo"));
-        return [...filtered, { role: "assistant", text: botResponse }];
-      });
-    } catch (error) {
+  const filtered = prev.filter((m) => !m.text.startsWith("📤 Subiendo"));
+  return [...filtered, { role: "assistant", text: botResponse }];
+});
+
+await saveChatMessage("assistant", botResponse);
+
+} catch (error) {
+
       console.error("Error connecting to n8n:", error);
       setMessages((prev) => [
         ...prev,
