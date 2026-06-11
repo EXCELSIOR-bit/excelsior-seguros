@@ -61,7 +61,7 @@ function getOperatorName(): string {
 
 const INITIAL_MESSAGE: Message = {
   role: "assistant",
-  text: "¡Hola! Soy el asistente de Excelsior Seguros. ¿En qué puedo ayudarte?\n\nPuedo:\n• Crear un nuevo prospecto (con correo)\n• Agregar documentos a un cliente o subcarpeta\n• Convertir un prospecto a cliente\n• Consultar información de una cédula\n• Revertir un cliente a prospecto\n• Listar clientes o prospectos\n• Crear subcarpetas (una o varias a la vez)\n• Mover documentos entre carpetas\n• Crear/avanzar negocios y agregar seguimientos\n• Gestionar propuestas (subir cotizaciones, marcar no representa)",
+  text: "¡Hola! Soy el asistente de Excelsior Seguros. ¿En qué puedo ayudarte?\n\nPuedo:\n• Crear un nuevo prospecto (con correo)\n• Agregar documentos a un cliente o subcarpeta\n• Convertir un prospecto a cliente\n• Consultar información de una cédula\n• Revertir un cliente a prospecto\n• Crear subcarpetas (una o varias a la vez)\n• Mover documentos entre carpetas\n• Gestionar propuestas (subir cotizaciones, marcar no representa)",
 };
 
 export default function ChatAI() {
