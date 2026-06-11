@@ -73,16 +73,9 @@ export default function ChatAI() {
   const [isDragging, setIsDragging] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [pendingCotizacion, setPendingCotizacion] = useState<PendingCotizacionUpload | null>(null);
-  const [sessionId] = useState(() => {
-  const saved = localStorage.getItem("chat_session_id");
+  const [sessionId] = useState(() => generateSessionId());
+  
 
-  if (saved) return saved;
-
-  const newId = generateSessionId();
-  localStorage.setItem("chat_session_id", newId);
-
-  return newId;
-});
   const chatEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
@@ -113,30 +106,6 @@ const saveChatMessage = async (
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isTyping]);
 
-  useEffect(() => {
-  const loadChatHistory = async () => {
-    if (!sessionId) return;
-
-    try {
-      const res = await fetch(`/api/chat/messages?session_id=${sessionId}`);
-      const data = await res.json();
-
-      if (data.ok && Array.isArray(data.messages) && data.messages.length > 0) {
-        setMessages(
-          data.messages.map((m: any) => ({
-            role: m.role,
-            text: m.content,
-          }))
-        );
-      }
-    } catch (err) {
-      console.error("Error cargando historial:", err);
-    }
-  };
-
-  loadChatHistory();
-
-}, [sessionId]);
   
   useEffect(() => {
     chatInputRef.current?.focus();
